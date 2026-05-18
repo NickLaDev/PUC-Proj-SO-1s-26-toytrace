@@ -36,38 +36,57 @@ static void fill_event_from_regs(pid_t pid,
 
 static pid_t launch_tracee(char *const argv[])
 {
-    /*
-     * TODO Semana 2:
-     *
-     * Crie o processo monitorado.
-     *
-     * Fluxo esperado:
-     * - fork()
-     * - no filho:
-     *   - ptrace(PTRACE_TRACEME, ...)
-     *   - raise(SIGSTOP)
-     *   - execvp(argv[0], argv)
-     * - no pai:
-     *   - retornar o pid do filho
-     *
-     * Em erro, imprima uma mensagem com perror() e retorne -1.
-     */
-    fprintf(stderr, "erro: TODO Semana 2: implementar launch_tracee()\n");
-    return -1;
+    pid_t child = fork(); //implementação do fork
+
+    if (child < 0) {
+        perror("fork");
+        return -1;
+    }
+// implementação do  PTRACE_TRACEME, raise(SIGSTOP) e execvp
+
+    if (child == 0) {
+        if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0) {
+            perror("ptrace(PTRACE_TRACEME)");
+            _exit(127);
+        }
+
+        raise(SIGSTOP);
+
+        execvp(argv[0], argv);
+
+        perror("execvp");
+        _exit(127);
+    }
+
+    return child;
 }
 
 static int wait_for_initial_stop(pid_t child)
 {
-    /*
-     * TODO Semana 2:
-     *
-     * O filho chama raise(SIGSTOP) antes de executar o programa alvo.
-     * O pai precisa esperar essa parada inicial com waitpid().
-     *
-     * Retorne 0 se o filho parou como esperado, -1 em erro.
-     */
-    fprintf(stderr, "erro: TODO Semana 2: implementar wait_for_initial_stop()\n");
-    return -1;
+    int status;
+    pid_t waited;
+// espera da parada inicial  com waitpid 
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+
+    if (waited < 0) {
+        perror("waitpid");
+        return -1;
+    }
+// validar se foi realmente parado com SIGSTOP
+    if (!WIFSTOPPED(status)) {
+//Test se o filho paraou 
+fprintf(stderr, "Processo não parou \n");
+        return -1;
+    }
+// Test se parou pelo motivo correto , wstopsig(Status) para verificar o sinal que o filho parou 
+    if (WSTOPSIG(status) != SIGSTOP) {
+        fprintf(stderr, "erro, sinal de parada :  %d\n", WSTOPSIG(status));
+        return -1;
+    }
+
+    return 0;
 }
 
 static int configure_trace_options(pid_t child)
