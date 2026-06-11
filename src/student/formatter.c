@@ -6,8 +6,7 @@
 #include <stdio.h>
 #include <sys/syscall.h>
 
-static void read_path_or_placeholder(pid_t pid, unsigned long addr,
-                                     char *buf, size_t bufsz)
+static void read_path_or_placeholder(pid_t pid, unsigned long addr, char *buf, size_t bufsz)
 {
     if (buf == NULL || bufsz == 0) {
         return;
@@ -23,9 +22,7 @@ static void read_path_or_placeholder(pid_t pid, unsigned long addr,
     }
 }
 
-void student_debug_raw_event(const struct syscall_event *ev,
-                             char *buf,
-                             size_t bufsz)
+void student_debug_raw_event(const struct syscall_event *ev, char *buf, size_t bufsz)
 {
     if (ev == NULL || buf == NULL || bufsz == 0) {
         return;
@@ -37,9 +34,7 @@ void student_debug_raw_event(const struct syscall_event *ev,
              ev->entering ? "entrada" : "saida");
 }
 
-void student_format_event(const struct syscall_event *ev,
-                          char *buf,
-                          size_t bufsz)
+void student_format_event(const struct syscall_event *ev, char *buf, size_t bufsz)
 {
     if (ev == NULL || buf == NULL || bufsz == 0) {
         return;
@@ -102,7 +97,7 @@ void student_format_event(const struct syscall_event *ev,
 #endif
 
     default:
-        // Mantem uma saida generica para syscalls que nao fazem parte do requisito principal.
+        /* Mantem uma saida generica para syscalls fora do requisito principal. */
         snprintf(buf, bufsz, "%s(%#lx, %#lx, %#lx, %#lx, %#lx, %#lx) = %ld",
                  syscall_name(ev->syscall_no),
                  ev->args[0],

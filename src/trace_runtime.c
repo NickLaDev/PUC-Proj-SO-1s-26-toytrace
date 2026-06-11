@@ -15,7 +15,8 @@
 
 static void fill_event_from_regs(pid_t pid, int entering,
                                  const struct user_regs_struct *regs,
-                                 struct syscall_event *ev) {
+                                 struct syscall_event *ev)
+{
     if (ev == NULL) {
         return;
     }
@@ -41,13 +42,12 @@ static void fill_event_from_regs(pid_t pid, int entering,
 
 static pid_t launch_tracee(char *const argv[])
 {
-    pid_t child = fork(); //implementação do fork
+    pid_t child = fork();
 
     if (child < 0) {
         perror("fork");
         return -1;
     }
-// implementação do  PTRACE_TRACEME, raise(SIGSTOP) e execvp
 
     if (child == 0) {
         if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) < 0) {
@@ -58,7 +58,6 @@ static pid_t launch_tracee(char *const argv[])
         raise(SIGSTOP);
 
         execvp(argv[0], argv);
-
         perror("execvp");
         _exit(127);
     }
@@ -70,7 +69,7 @@ static int wait_for_initial_stop(pid_t child)
 {
     int status;
     pid_t waited;
-// espera da parada inicial  com waitpid 
+
     do {
         waited = waitpid(child, &status, 0);
     } while (waited < 0 && errno == EINTR);
@@ -79,65 +78,90 @@ static int wait_for_initial_stop(pid_t child)
         perror("waitpid");
         return -1;
     }
-// validar se foi realmente parado com SIGSTOP
+
     if (!WIFSTOPPED(status)) {
-//Test se o filho paraou 
-fprintf(stderr, "Processo não parou \n");
+        fprintf(stderr, "erro: processo monitorado nao parou inicialmente\n");
         return -1;
     }
-// Test se parou pelo motivo correto , wstopsig(Status) para verificar o sinal que o filho parou 
 
     if (WSTOPSIG(status) != SIGSTOP) {
-        fprintf(stderr, "erro, sinal de parada :  %d\n", WSTOPSIG(status));
+        fprintf(stderr, "erro: parada inicial inesperada: sinal %d\n", WSTOPSIG(status));
         return -1;
     }
 
     return 0;
 }
 
+static int configure_trace_options(pid_t child)
+{
+    if (ptrace(PTRACE_SETOPTIONS, child, NULL,
+               (void *)(long)PTRACE_O_TRACESYSGOOD) < 0) {
+        perror("ptrace(PTRACE_SETOPTIONS)");
+        return -1;
+    }
 
-   static int configure_trace_options(pid_t child)
-  {
-      if (ptrace(PTRACE_SETOPTIONS, child, NULL, (void *)PTRACE_O_TRACESYSGOOD) < 0) {
-          perror("ptrace(PTRACE_SETOPTIONS)");
-          return -1;
-      }
+    return 0;
+}
 
-      return 0;
-  }
+static int resume_until_next_syscall(pid_t child, int signal_to_deliver)
+{
+    if (ptrace(PTRACE_SYSCALL, child, NULL,
+               (void *)(long)signal_to_deliver) < 0) {
+        perror("ptrace(PTRACE_SYSCALL)");
+        return -1;
+    }
 
+    return 0;
+}
 
-   static int resume_until_next_syscall(pid_t child, int signal_to_deliver)
-  {
-      if (ptrace(PTRACE_SYSCALL, child, NULL, (void *)(long)signal_to_deliver) < 0) {
-          perror("ptrace(PTRACE_SYSCALL)");
-          return -1;
-      }
+static int wait_for_syscall_stop(pid_t child, int *status)
+{
+    if (status == NULL) {
+        fprintf(stderr, "erro: status invalido\n");
+        return -1;
+    }
 
-      return 0;
-  }
+    while (1) {
+        pid_t waited;
+        int sig;
+        int signal_to_deliver;
 
+        do {
+            waited = waitpid(child, status, 0);
+        } while (waited < 0 && errno == EINTR);
 
+        if (waited < 0) {
+            perror("waitpid");
+            return -1;
+        }
 
-  static int wait_for_syscall_stop(pid_t child, int *status)
-  {
-      if (waitpid(child, status, 0) < 0) {
-          perror("waitpid");
-          return -1;
-      }
+        if (WIFEXITED(*status) || WIFSIGNALED(*status)) {
+            return 0;
+        }
 
-      if (WIFEXITED(*status) || WIFSIGNALED(*status)) {
-          return 0;
-      }
+        if (!WIFSTOPPED(*status)) {
+            fprintf(stderr, "erro: estado inesperado do processo monitorado\n");
+            return -1;
+        }
 
-      if (WIFSTOPPED(*status) && WSTOPSIG(*status) == (SIGTRAP | 0x80)) {
-          return 1;
-      }
+        sig = WSTOPSIG(*status);
 
-      return 0;
-  }
- 
+        if (sig == (SIGTRAP | 0x80)) {
+            return 1;
+        }
 
+        /*
+         * SIGTRAP comum pode aparecer, por exemplo, depois do exec.
+         * Ele nao deve ser reenviado ao filho. Outros sinais reais
+         * podem ser entregues no proximo PTRACE_SYSCALL.
+         */
+        signal_to_deliver = (sig == SIGTRAP) ? 0 : sig;
+
+        if (resume_until_next_syscall(child, signal_to_deliver) < 0) {
+            return -1;
+        }
+    }
+}
 
 int trace_program(char *const argv[],
                   trace_observer_fn observer,
@@ -178,6 +202,7 @@ int trace_program(char *const argv[],
         if (stop_kind < 0) {
             return -1;
         }
+
         if (stop_kind == 0) {
             if (WIFEXITED(status)) {
                 return WEXITSTATUS(status);
@@ -188,19 +213,18 @@ int trace_program(char *const argv[],
             return 0;
         }
 
-       
         memset(&regs, 0, sizeof(regs));
 
-if (ptrace(PTRACE_GETREGS, child, NULL, &regs) < 0) {
-    perror("ptrace(PTRACE_GETREGS)");
-    return -1;
-}
+        if (ptrace(PTRACE_GETREGS, child, NULL, &regs) < 0) {
+            perror("ptrace(PTRACE_GETREGS)");
+            return -1;
+        }
 
-fill_event_from_regs(child, entering, &regs, &ev);
+        fill_event_from_regs(child, entering, &regs, &ev);
 
-if (observer != NULL) {
-    observer(&ev, userdata);
-}
+        if (observer != NULL) {
+            observer(&ev, userdata);
+        }
 
         entering = !entering;
 
