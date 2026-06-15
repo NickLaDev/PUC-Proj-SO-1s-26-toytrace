@@ -66,8 +66,8 @@ void student_format_event(const struct syscall_event *ev, char *buf, size_t bufs
         char path[256];
 
         read_path_or_placeholder(ev->pid, ev->args[1], path, sizeof(path));
-        snprintf(buf, bufsz, "openat(%ld, \"%s\", %#lx, %#lx) = %ld",
-                 (long)ev->args[0],
+        snprintf(buf, bufsz, "openat(%d, \"%s\", %#lx, %#lx) = %ld",
+                 (int)ev->args[0],
                  path,
                  ev->args[2],
                  ev->args[3],
